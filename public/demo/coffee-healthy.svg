@@ -1,0 +1,7 @@
+<svg width="600" height="450" viewBox="0 0 600 450" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="600" height="450" fill="#16473B"/><circle cx="88" cy="90" r="68" fill="#F1CE73" opacity=".28"/>
+  <path d="M295 452C302 318 299 191 304 0" stroke="#A2D590" stroke-width="17"/>
+  <g fill="#4CA45D" stroke="#BCE08E" stroke-width="5"><path d="M299 124C187 92 119 128 80 220C181 240 255 207 299 124Z"/><path d="M304 166C412 125 494 169 538 251C432 281 356 244 304 166Z"/><path d="M301 266C193 237 111 282 72 375C174 392 258 348 301 266Z"/><path d="M305 306C412 269 499 306 546 392C440 421 355 386 305 306Z"/></g>
+  <g fill="#D44A38"><circle cx="420" cy="212" r="12"/><circle cx="454" cy="232" r="12"/><circle cx="435" cy="258" r="12"/></g>
+  <text x="38" y="63" fill="white" font-family="sans-serif" font-size="25" font-weight="700">COFFEE · HEALTHY LEAF</text>
+</svg>

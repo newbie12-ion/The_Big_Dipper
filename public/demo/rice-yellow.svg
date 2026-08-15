@@ -1,0 +1,5 @@
+<svg width="600" height="450" viewBox="0 0 600 450" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="600" height="450" fill="#E8D98E"/><path d="M0 333C105 302 178 306 281 338C386 369 476 366 600 322V450H0V333Z" fill="#76A867"/>
+  <g stroke-linecap="round"><path d="M81 418C94 291 91 203 75 120" stroke="#879E42" stroke-width="12"/><path d="M134 418C142 278 165 186 207 87" stroke="#D1AE38" stroke-width="12"/><path d="M207 418C216 287 198 178 160 106" stroke="#A7B448" stroke-width="12"/><path d="M301 418C315 269 308 179 282 81" stroke="#D1AE38" stroke-width="12"/><path d="M371 418C383 284 411 182 455 93" stroke="#A6B94D" stroke-width="12"/><path d="M446 418C452 265 435 184 400 107" stroke="#D1AE38" stroke-width="12"/><path d="M521 418C536 303 548 214 543 137" stroke="#9EAD47" stroke-width="12"/></g>
+  <text x="38" y="63" fill="#364D2D" font-family="sans-serif" font-size="25" font-weight="700">RICE · YELLOWING</text>
+</svg>
