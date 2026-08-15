@@ -1,33 +1,48 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
+  AlertTriangle,
   ArrowLeft,
+  Camera,
+  CameraOff,
   ChevronRight,
   CloudRain,
   Droplets,
   FlaskConical,
+  ImagePlus,
   Languages,
   Leaf,
   MapPinned,
+  RotateCcw,
   ScanSearch,
   ShieldCheck,
+  SwitchCamera,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
-  analysisStages,
   certificateRows,
   coopRain,
   device,
   farmZones,
   nearbyAlert,
   satelliteInsights,
-  scanScenarios,
   sensorHistory,
   weatherCard,
 } from "../data/mockData";
-import { tText } from "../lib/i18n";
+import { farmAreaSqm, formatDms, getZoneGeometry } from "../data/farmGeo";
+import { formatHectares, formatSqm } from "../lib/geo";
+import {
+  VisionError,
+  analyseCropPhoto,
+  captureFrameFromVideo,
+  fileToDataUrl,
+  visionConfigured,
+  type AiScanResult,
+  type VisionErrorKind,
+} from "../lib/vision";
+import { tText, type LocalizedText } from "../lib/i18n";
 import {
   farmerProfile,
   getCertificateReadiness,
@@ -45,6 +60,7 @@ import {
   StatCard,
   cx,
 } from "../components/ui";
+import { FarmMap, LayerToggle, MoistureLegend, type MapLayer } from "../components/FarmMap";
 
 const eventTone: Record<string, "good" | "warn" | "alert" | "neutral"> = {
   scan: "good",
@@ -162,11 +178,10 @@ export const HomeDashboardScreen = () => {
         </div>
       </AppCard>
 
-      <button onClick={() => navigate("/scan")} className="w-full text-left">
+      {/* Advisory only. Scanning lives in the bottom nav — one entry point, not three. */}
       <AppCard className="border-amber-200 bg-amber-50">
         <p className="text-sm font-semibold text-amber-800">⚠ {nearbyAlert[language]}</p>
       </AppCard>
-      </button>
 
       <AppCard>
         <div className="flex items-center justify-between gap-4">
@@ -216,21 +231,124 @@ export const HomeDashboardScreen = () => {
           </button>
         ))}
       </div>
-
-      <PrimaryButton onClick={() => navigate("/scan")}>
-        <ScanSearch className="mr-2 h-5 w-5" />
-        {language === "vi" ? "Quét cây" : "Scan crop"}
-      </PrimaryButton>
     </div>
   );
 };
 
+/**
+ * Live camera capture. No demo images — the shutter grabs a real frame and the
+ * upload button takes a real file, and either one goes straight to the vision model.
+ */
 export const ScanCaptureScreen = () => {
   const navigate = useNavigate();
   const language = useAppStore((state) => state.language ?? "vi");
-  const selectedScanId = useAppStore((state) => state.selectedScanId);
-  const setSelectedScanId = useAppStore((state) => state.setSelectedScanId);
-  const scenario = scanScenarios.find((item) => item.id === selectedScanId) ?? scanScenarios[0];
+  const beginScan = useAppStore((state) => state.beginScan);
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const stopStream = useCallback(() => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const start = async () => {
+      setStarting(true);
+      setCameraError(null);
+      stopStream();
+
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraError(
+          language === "vi"
+            ? "Trình duyệt này không mở được máy ảnh. Hãy dùng nút tải ảnh lên."
+            : "This browser cannot open a camera. Use the upload button instead.",
+        );
+        setStarting(false);
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: facingMode }, width: { ideal: 1280 } },
+          audio: false,
+        });
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play().catch(() => undefined);
+        }
+      } catch (error) {
+        if (cancelled) return;
+        const name = (error as DOMException)?.name;
+        // getUserMedia is gated on a secure context: https:// or localhost.
+        const insecure = typeof window !== "undefined" && !window.isSecureContext;
+        setCameraError(
+          insecure
+            ? language === "vi"
+              ? "Máy ảnh chỉ chạy trên HTTPS hoặc localhost. Hãy tải ảnh lên."
+              : "The camera needs HTTPS or localhost. Please upload a photo instead."
+            : name === "NotAllowedError"
+              ? language === "vi"
+                ? "Bạn chưa cho phép dùng máy ảnh. Cho phép trong trình duyệt rồi thử lại."
+                : "Camera permission was denied. Allow it in your browser and retry."
+              : language === "vi"
+                ? "Không tìm thấy máy ảnh trên thiết bị này."
+                : "No camera was found on this device.",
+        );
+      } finally {
+        if (!cancelled) setStarting(false);
+      }
+    };
+
+    void start();
+
+    return () => {
+      cancelled = true;
+      stopStream();
+    };
+  }, [facingMode, language, stopStream]);
+
+  const handoff = (dataUrl: string) => {
+    stopStream();
+    beginScan(dataUrl);
+    navigate("/scan/analyzing");
+  };
+
+  const shoot = () => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) return;
+    setBusy(true);
+    try {
+      handoff(captureFrameFromVideo(video));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const pickFile = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true);
+    try {
+      handoff(await fileToDataUrl(file));
+    } catch (error) {
+      setCameraError((error as Error).message);
+    } finally {
+      setBusy(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -238,93 +356,196 @@ export const ScanCaptureScreen = () => {
         title={language === "vi" ? "Quét cây" : "Crop scanner"}
         subtitle={
           language === "vi"
-            ? "Chọn ảnh demo để mô phỏng máy ảnh."
-            : "Choose a demo image to simulate the camera."
+            ? "Đưa máy ảnh sát vào lá hoặc thân bị bệnh, giữ ổn định rồi chụp."
+            : "Hold the camera close to the affected leaf or stem, keep it steady, then shoot."
         }
       />
 
+      {!visionConfigured ? (
+        <AppCard className="border-amber-200 bg-amber-50">
+          <p className="text-sm font-semibold text-amber-900">
+            ⚠ {language === "vi"
+              ? "Chưa cấu hình VITE_OPENROUTER_API_KEY — chẩn đoán AI sẽ không chạy."
+              : "VITE_OPENROUTER_API_KEY is not set — AI diagnosis will not run."}
+          </p>
+        </AppCard>
+      ) : null}
+
       <AppCard className="overflow-hidden p-0">
         <div className="relative aspect-[4/5] overflow-hidden bg-black">
-          <img
-            src={scenario.imageUrl}
-            alt={tText(scenario.shortLabel, language)}
-            className="h-full w-full object-cover opacity-95"
+          <video
+            ref={videoRef}
+            playsInline
+            muted
+            autoPlay
+            className={cx(
+              "h-full w-full object-cover",
+              cameraError ? "opacity-0" : "opacity-100",
+              facingMode === "user" && "scale-x-[-1]",
+            )}
           />
-          <div className="pointer-events-none absolute inset-6 rounded-[28px] border-2 border-white/80" />
-          <div className="pointer-events-none absolute inset-10 rounded-[24px] border border-dashed border-white/60" />
+
+          {cameraError ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center">
+              <CameraOff className="h-10 w-10 text-white/70" />
+              <p className="text-sm font-medium text-white/90">{cameraError}</p>
+            </div>
+          ) : starting ? (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <p className="text-sm font-medium text-white/80">
+                {language === "vi" ? "Đang mở máy ảnh…" : "Opening camera…"}
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="pointer-events-none absolute inset-6 rounded-[28px] border-2 border-white/80" />
+              <div className="pointer-events-none absolute inset-10 rounded-[24px] border border-dashed border-white/60" />
+              <p className="pointer-events-none absolute inset-x-0 bottom-4 text-center text-xs font-semibold text-white/85">
+                {language === "vi" ? "Lấy nét vào vết bệnh" : "Frame the lesion"}
+              </p>
+            </>
+          )}
+
+          {!cameraError && !starting ? (
+            <button
+              onClick={() => setFacingMode((mode) => (mode === "environment" ? "user" : "environment"))}
+              aria-label={language === "vi" ? "Đổi máy ảnh" : "Switch camera"}
+              className="absolute right-3 top-3 flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur"
+            >
+              <SwitchCamera className="h-5 w-5" />
+            </button>
+          ) : null}
         </div>
       </AppCard>
 
-      <div className="grid grid-cols-2 gap-3">
-        {scanScenarios.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => {
-              setSelectedScanId(item.id);
-              navigate("/scan/analyzing");
-            }}
-            className={cx(
-              "overflow-hidden rounded-[24px] border text-left transition",
-              selectedScanId === item.id
-                ? "border-brand-green ring-2 ring-emerald-200"
-                : "border-brand-line",
-            )}
-          >
-            <img
-              src={item.imageUrl}
-              alt={tText(item.shortLabel, language)}
-              className="h-24 w-full object-cover"
-            />
-            <div className="bg-white p-3">
-              <p className="text-xs font-semibold text-brand-dark">
-                {tText(item.shortLabel, language)}
-              </p>
-            </div>
-          </button>
-        ))}
+      <div className="flex items-center gap-3">
+        <SecondaryButton
+          className="h-14 flex-1"
+          onClick={() => fileRef.current?.click()}
+          disabled={busy}
+        >
+          <ImagePlus className="mr-2 h-5 w-5" />
+          {language === "vi" ? "Tải ảnh lên" : "Upload photo"}
+        </SecondaryButton>
+
+        <button
+          onClick={shoot}
+          disabled={busy || Boolean(cameraError) || starting}
+          aria-label={language === "vi" ? "Chụp ảnh" : "Take photo"}
+          className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-4 border-emerald-200 bg-brand-green text-white transition disabled:opacity-40"
+        >
+          <Camera className="h-7 w-7" />
+        </button>
       </div>
 
-      <PrimaryButton onClick={() => navigate("/scan/analyzing")}>
-        <ScanSearch className="mr-2 h-5 w-5" />
-        {language === "vi" ? "Chụp & phân tích" : "Capture & analyze"}
-      </PrimaryButton>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => void pickFile(event.target.files?.[0])}
+      />
+
+      <p className="text-center text-[11px] leading-relaxed text-brand-muted">
+        {language === "vi"
+          ? "Ảnh chỉ được gửi tới mô hình AI để chẩn đoán, không lưu trên máy chủ."
+          : "The photo is sent to the AI model for diagnosis only — nothing is stored on a server."}
+      </p>
     </div>
   );
 };
 
+/** Stage labels shown while the real request is in flight. */
+const analysisStages: LocalizedText[] = [
+  { vi: "Đang gửi ảnh tới mô hình AI…", en: "Sending the photo to the AI model…" },
+  { vi: "Đang nhận diện cây trồng…", en: "Identifying the crop…" },
+  { vi: "Đang đối chiếu triệu chứng…", en: "Matching the visible symptoms…" },
+  { vi: "Đang soạn khuyến nghị…", en: "Writing the recommendation…" },
+];
+
 export const ScanAnalyzingScreen = () => {
   const navigate = useNavigate();
   const language = useAppStore((state) => state.language ?? "vi");
-  const selectedScanId = useAppStore((state) => state.selectedScanId);
-  const scenario = scanScenarios.find((item) => item.id === selectedScanId) ?? scanScenarios[0];
+  const capturedImage = useAppStore((state) => state.capturedImage);
+  const completeScan = useAppStore((state) => state.completeScan);
+  const failScan = useAppStore((state) => state.failScan);
+  const moisture = useAppStore((state) => state.moisture);
+  const humidity = useAppStore((state) => state.humidity);
+  const temp = useAppStore((state) => state.temp);
+  const selectedPlotId = useAppStore((state) => state.selectedPlotId);
   const [stageIndex, setStageIndex] = useState(0);
+  const [slow, setSlow] = useState(false);
 
   useEffect(() => {
-    const interval = window.setInterval(() => {
-      setStageIndex((value) => Math.min(value + 1, analysisStages.length - 1));
-    }, 800);
-    const timeout = window.setTimeout(() => navigate(`/scan/result/${selectedScanId}`), 2600);
+    if (!capturedImage) {
+      navigate("/scan", { replace: true });
+      return;
+    }
+
+    const controller = new AbortController();
+    // The stage ticker is cosmetic and stops one short of the end, so it can
+    // never claim the request finished before it actually has.
+    const ticker = window.setInterval(
+      () => setStageIndex((value) => Math.min(value + 1, analysisStages.length - 1)),
+      900,
+    );
+
+    void analyseCropPhoto(
+      capturedImage,
+      {
+        province: farmerProfile.location,
+        soilMoisturePct: Math.round(moisture),
+        airHumidityPct: Math.round(humidity),
+        temperatureC: Math.round(temp),
+        weather: weatherCard.summary.en,
+        date: new Date().toISOString().slice(0, 10),
+      },
+      controller.signal,
+      () => {
+        if (!controller.signal.aborted) setSlow(true);
+      },
+    )
+      .then((result) => {
+        if (controller.signal.aborted) return;
+        completeScan(result);
+        navigate("/scan/result", { replace: true });
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted || (error as Error)?.name === "AbortError") return;
+        // Only the category crosses into state — provider text and model names
+        // stay in the console.
+        if (!(error instanceof VisionError)) console.error("[scan]", error);
+        failScan(error instanceof VisionError ? error.kind : "network");
+        navigate("/scan/result", { replace: true });
+      });
 
     return () => {
-      window.clearInterval(interval);
-      window.clearTimeout(timeout);
+      controller.abort();
+      window.clearInterval(ticker);
     };
-  }, [navigate]);
+    // Field context is read once, at request time — re-running on every sensor
+    // tick would fire a new vision call every 1.5 s.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capturedImage]);
 
   return (
     <div className="space-y-5">
       <SectionHeading
         title={language === "vi" ? "Đang phân tích" : "Analyzing"}
-        subtitle={analysisStages[stageIndex][language]}
+        subtitle={
+          slow
+            ? language === "vi"
+              ? "Đang mất nhiều thời gian hơn bình thường, vui lòng chờ…"
+              : "This is taking longer than usual — hang on…"
+            : analysisStages[stageIndex][language]
+        }
       />
 
       <AppCard className="overflow-hidden p-0">
-        <div className="relative aspect-[4/5] overflow-hidden">
-          <img
-            src={scenario.imageUrl}
-            alt={tText(scenario.shortLabel, language)}
-            className="h-full w-full object-cover"
-          />
+        <div className="relative aspect-[4/5] overflow-hidden bg-black">
+          {capturedImage ? (
+            <img src={capturedImage} alt="" className="h-full w-full object-cover" />
+          ) : null}
           <motion.div
             initial={{ y: -40, opacity: 0.3 }}
             animate={{ y: 400, opacity: 1 }}
@@ -333,6 +554,16 @@ export const ScanAnalyzingScreen = () => {
           />
         </div>
       </AppCard>
+
+      {slow ? (
+        <AppCard className="border-amber-200 bg-amber-50">
+          <p className="text-sm font-semibold text-amber-900">
+            ⏳ {language === "vi"
+              ? "Máy chủ đang bận. Hệ thống vẫn đang xử lý ảnh của bạn, đừng tắt màn hình."
+              : "The server is busy. Your photo is still being processed — keep this screen open."}
+          </p>
+        </AppCard>
+      ) : null}
 
       <div className="space-y-3">
         {analysisStages.map((stage, index) => (
@@ -353,93 +584,312 @@ export const ScanAnalyzingScreen = () => {
   );
 };
 
+const severityTone: Record<string, "good" | "warn" | "alert"> = {
+  none: "good",
+  low: "good",
+  moderate: "warn",
+  high: "alert",
+};
+
+const severityLabel: Record<string, LocalizedText> = {
+  none: { vi: "Không có triệu chứng", en: "No symptoms" },
+  low: { vi: "Mức độ nhẹ", en: "Low severity" },
+  moderate: { vi: "Mức độ trung bình", en: "Moderate severity" },
+  high: { vi: "Mức độ nặng", en: "High severity" },
+};
+
+const urgencyLabel: Record<string, LocalizedText> = {
+  monitor: { vi: "Theo dõi thêm", en: "Keep monitoring" },
+  this_week: { vi: "Xử lý trong tuần", en: "Act this week" },
+  today: { vi: "Xử lý ngay hôm nay", en: "Act today" },
+};
+
+/**
+ * Failure copy written for a farmer, keyed off the error category.
+ *
+ * Raw provider text ("google/... returned 429") never reaches this screen —
+ * it names infrastructure the user cannot act on, and reads as a broken app.
+ */
+const scanErrorMessage = (kind: VisionErrorKind | null, language: "vi" | "en") => {
+  const copy: Record<VisionErrorKind | "unknown", LocalizedText> = {
+    quota: {
+      vi: "Hiện có quá nhiều người cùng quét nên hệ thống chưa xử lý kịp. Vui lòng thử lại sau khoảng một phút — ảnh của bạn không bị mất.",
+      en: "Too many scans are running right now, so the service could not keep up. Try again in about a minute — your photo is not lost.",
+    },
+    network: {
+      vi: "Không kết nối được máy chủ. Kiểm tra lại mạng rồi thử lại.",
+      en: "Could not reach the server. Check your connection and try again.",
+    },
+    provider: {
+      vi: "Máy chủ chẩn đoán đang gặp sự cố. Vui lòng thử lại sau ít phút.",
+      en: "The diagnosis service hit a problem. Please try again in a few minutes.",
+    },
+    malformed: {
+      vi: "Kết quả trả về không đọc được. Vui lòng chụp lại và thử lần nữa.",
+      en: "The response could not be read. Please retake the photo and try again.",
+    },
+    blocked: {
+      vi: "Ảnh này không được phép phân tích. Vui lòng chụp ảnh cây trồng khác.",
+      en: "This photo could not be analysed. Please take a photo of a plant instead.",
+    },
+    "no-key": {
+      vi: "Ứng dụng chưa được cấu hình khoá API. Liên hệ người quản trị.",
+      en: "The app is missing its API key. Contact the administrator.",
+    },
+    unknown: {
+      vi: "Có lỗi không xác định. Vui lòng thử lại.",
+      en: "Something went wrong. Please try again.",
+    },
+  };
+
+  return copy[kind ?? "unknown"][language];
+};
+
 export const ScanResultScreen = () => {
   const navigate = useNavigate();
-  const { photoId } = useParams();
   const language = useAppStore((state) => state.language ?? "vi");
-  const selectedScanId = useAppStore((state) => state.selectedScanId);
-  const setSelectedScanId = useAppStore((state) => state.setSelectedScanId);
-  const logSelectedScan = useAppStore((state) => state.logSelectedScan);
+  const scanPhase = useAppStore((state) => state.scanPhase);
+  const result = useAppStore((state) => state.aiResult);
+  const aiError = useAppStore((state) => state.aiError);
+  const aiScanId = useAppStore((state) => state.aiScanId);
+  const capturedImage = useAppStore((state) => state.capturedImage);
   const loggedScanIds = useAppStore((state) => state.loggedScanIds);
-  const scenario = scanScenarios.find((item) => item.id === photoId || item.id === selectedScanId) ?? scanScenarios[0];
+  const logAiScan = useAppStore((state) => state.logAiScan);
+  const selectedPlotId = useAppStore((state) => state.selectedPlotId);
   const [tab, setTab] = useState<"treatment" | "care" | "prevention">("treatment");
-  const [showToast, setShowToast] = useState(false);
-  const alreadyLogged = loggedScanIds.includes(scenario.id);
-  const plotId = scenario.affectsPlotId;
+  const [loggedHash, setLoggedHash] = useState<string | null>(null);
 
-  const currentList = {
-    treatment: scenario.treatment,
-    care: scenario.care,
-    prevention: scenario.prevention,
-  }[tab];
+  useEffect(() => {
+    if (scanPhase === "idle") navigate("/scan", { replace: true });
+  }, [scanPhase, navigate]);
+
+  // ── request failed ──
+  if (scanPhase === "error" || (!result && aiError)) {
+    return (
+      <ScanFailure
+        language={language}
+        title={
+          aiError === "quota"
+            ? language === "vi"
+              ? "Hệ thống đang bận"
+              : "The service is busy"
+            : language === "vi"
+              ? "Chưa chẩn đoán được"
+              : "Diagnosis failed"
+        }
+        message={scanErrorMessage(aiError, language)}
+        onRetry={() => navigate("/scan")}
+      />
+    );
+  }
+
+  if (!result) return null;
+
+  // ── the model refused the photo ──
+  if (!result.isPlant) {
+    return (
+      <ScanFailure
+        language={language}
+        icon="reject"
+        title={language === "vi" ? "Ảnh chưa dùng được" : "Photo not usable"}
+        message={
+          result.rejection?.[language] ??
+          (language === "vi"
+            ? "Ảnh này không phải cây trồng hoặc quá mờ để chẩn đoán."
+            : "This photo is not a plant, or is too unclear to diagnose.")
+        }
+        image={capturedImage}
+        onRetry={() => navigate("/scan")}
+      />
+    );
+  }
+
+  const healthy = result.status === "healthy";
+  const alreadyLogged = Boolean(aiScanId && loggedScanIds.includes(aiScanId));
+
+  // The plot's registered crop is never sent to the model — it would anchor the
+  // identification. Comparing here instead keeps the note and leaves the
+  // diagnosis uncontaminated.
+  const registeredPlot = plots.find((item) => item.id === selectedPlotId);
+  const detectedName = `${result.plantName?.vi ?? ""} ${result.plantName?.en ?? ""}`.toLowerCase();
+  const cropMismatch = Boolean(
+    registeredPlot &&
+      detectedName.trim() &&
+      !detectedName.includes(registeredPlot.crop.vi.toLowerCase()) &&
+      !detectedName.includes(registeredPlot.crop.en.toLowerCase()),
+  );
+  const lists = {
+    treatment: result.treatment ?? [],
+    care: result.care ?? [],
+    prevention: result.prevention ?? [],
+  };
 
   const handleLog = () => {
-    if (!alreadyLogged) {
-      setSelectedScanId(scenario.id);
-      logSelectedScan();
-    }
-    setShowToast(true);
-    window.setTimeout(() => navigate(`/plot/${plotId}/timeline`), 900);
+    const event = logAiScan();
+    setLoggedHash(event ? `0x${event.hash.slice(0, 10)}` : "0x…");
+    window.setTimeout(() => navigate(`/plot/${selectedPlotId}/timeline`), 900);
   };
 
   return (
     <div className="space-y-4">
-      {showToast ? (
+      {loggedHash ? (
         <div className="rounded-2xl bg-brand-dark px-4 py-3 text-sm font-semibold text-white">
-          0x3f9a... ✓ {language === "vi" ? "Đã xác nhận trên chuỗi" : "Confirmed on-chain"}
+          {loggedHash}… ✓ {language === "vi" ? "Đã xác nhận trên chuỗi" : "Confirmed on-chain"}
         </div>
       ) : null}
 
       <AppCard className="overflow-hidden p-0">
-        <img
-          src={scenario.imageUrl}
-          alt={tText(scenario.shortLabel, language)}
-          className="h-44 w-full object-cover"
-        />
+        {result.imageDataUrl ?? capturedImage ? (
+          <img
+            src={result.imageDataUrl ?? capturedImage ?? ""}
+            alt={result.plantName?.[language] ?? ""}
+            className="h-44 w-full object-cover"
+          />
+        ) : null}
+
         <div className="space-y-4 p-4">
           <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm text-brand-muted">{tText(scenario.plantName, language)}</p>
+            <div className="min-w-0">
+              <p className="text-sm text-brand-muted">{result.plantName?.[language]}</p>
               <h1 className="text-2xl font-bold text-brand-dark">
-                {tText(scenario.diagnosis, language)}
+                {result.diagnosis?.[language] ??
+                  (language === "vi" ? "Không phát hiện bệnh" : "No disease detected")}
               </h1>
-              <p className="mt-1 text-xs font-medium italic text-brand-muted">{scenario.scientificName}</p>
+              {result.scientificName ? (
+                <p className="mt-1 text-xs font-medium italic text-brand-muted">
+                  {result.pathogenName || result.scientificName}
+                </p>
+              ) : null}
             </div>
-            <Badge tone={scenario.confidence >= 90 ? "good" : "warn"}>
-              {tText(scenario.severity, language)}
+            <Badge tone={severityTone[result.severity ?? "none"] ?? "neutral"}>
+              {severityLabel[result.severity ?? "none"][language]}
             </Badge>
           </div>
 
           <div>
             <div className="mb-2 flex items-center justify-between text-sm text-brand-muted">
               <span>{language === "vi" ? "Độ tin cậy" : "Confidence"}</span>
-              <span>{scenario.confidence}%</span>
+              <span>{result.confidence}%</span>
             </div>
             <div className="h-3 rounded-full bg-emerald-100">
               <div
-                className="h-3 rounded-full bg-brand-green transition-all"
-                style={{ width: `${scenario.confidence}%` }}
+                className={cx(
+                  "h-3 rounded-full transition-all",
+                  result.confidence >= 70 ? "bg-brand-green" : "bg-amber-500",
+                )}
+                style={{ width: `${result.confidence}%` }}
               />
             </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {result.urgency ? (
+              <Badge tone={result.urgency === "today" ? "alert" : result.urgency === "this_week" ? "warn" : "neutral"}>
+                {urgencyLabel[result.urgency][language]}
+              </Badge>
+            ) : null}
+            {result.preHarvestIntervalDays ? (
+              <Badge tone="warn">
+                {language === "vi"
+                  ? `Cách ly ${result.preHarvestIntervalDays} ngày`
+                  : `${result.preHarvestIntervalDays}-day pre-harvest interval`}
+              </Badge>
+            ) : result.chemicalWithoutInterval ? (
+              <Badge tone="alert">
+                {language === "vi" ? "Xem nhãn: thời gian cách ly" : "Check label: harvest interval"}
+              </Badge>
+            ) : null}
+            {healthy ? <Badge tone="good">{language === "vi" ? "Cây khỏe" : "Healthy"}</Badge> : null}
           </div>
         </div>
       </AppCard>
 
+      {result.chemicalWithoutInterval ? (
+        <AppCard className="border-rose-200 bg-rose-50">
+          <p className="text-sm font-semibold text-rose-900">
+            ⚠ {language === "vi"
+              ? "Khuyến nghị có phun thuốc nhưng chưa rõ thời gian cách ly. Đọc kỹ nhãn thuốc và KHÔNG thu hoạch trước thời gian ghi trên nhãn."
+              : "A spray is recommended but the harvest interval is unknown. Read the product label and do NOT harvest before the interval it states."}
+          </p>
+        </AppCard>
+      ) : null}
+
+      {result.needsBetterPhoto ? (
+        <AppCard className="border-amber-200 bg-amber-50">
+          <p className="text-sm font-semibold text-amber-900">
+            ⚠ {language === "vi"
+              ? "Độ tin cậy thấp — hãy chụp lại gần hơn, đủ sáng, rõ vết bệnh."
+              : "Low confidence — retake the photo closer, in better light, with the lesion in focus."}
+          </p>
+        </AppCard>
+      ) : null}
+
+      {result.observedSymptoms?.length ? (
+        <AppCard>
+          <SectionHeading
+            title={language === "vi" ? "AI nhìn thấy gì" : "What the AI saw"}
+            subtitle={
+              language === "vi"
+                ? "Mọi kết luận bên dưới dựa trên các dấu hiệu này."
+                : "Everything below is derived from these visible signs."
+            }
+          />
+          <ul className="space-y-2">
+            {result.observedSymptoms.map((item) => (
+              <li key={item.en} className="rounded-2xl bg-brand-cream px-4 py-3 text-sm text-brand-dark">
+                {item[language]}
+              </li>
+            ))}
+          </ul>
+        </AppCard>
+      ) : null}
+
+      {result.differentials?.length ? (
+        <AppCard className="border-sky-100 bg-sky-50">
+          <p className="text-sm font-semibold text-brand-ink">
+            {language === "vi" ? "Nguyên nhân khác cũng có thể" : "Other causes that would also fit"}
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {result.differentials.map((item) => (
+              <li key={item.en} className="text-sm text-brand-muted">
+                · {item[language]}
+              </li>
+            ))}
+          </ul>
+        </AppCard>
+      ) : null}
+
+      {cropMismatch && registeredPlot ? (
+        <AppCard className="border-sky-200 bg-sky-50">
+          <p className="text-sm text-sky-900">
+            📋 {language === "vi"
+              ? `Lô này đang đăng ký là ${tText(registeredPlot.crop, "vi")}, nhưng ảnh cho thấy ${result.plantName?.vi}. Bản ghi sẽ lưu theo cây trong ảnh.`
+              : `This plot is registered as ${tText(registeredPlot.crop, "en")}, but the photo shows ${result.plantName?.en}. The record follows the photo.`}
+          </p>
+        </AppCard>
+      ) : null}
+
+      {result.fieldNote ? (
+        <AppCard className="border-amber-200 bg-amber-50">
+          <p className="text-sm text-amber-900">📋 {result.fieldNote[language]}</p>
+        </AppCard>
+      ) : null}
+
       <AppCard>
         <div className="grid grid-cols-3 gap-2">
-          {[
-            ["treatment", language === "vi" ? "Điều trị" : "Treatment"],
-            ["care", language === "vi" ? "Chăm sóc" : "How to grow"],
-            ["prevention", language === "vi" ? "Phòng ngừa" : "Prevention"],
-          ].map(([key, label]) => (
+          {(
+            [
+              ["treatment", language === "vi" ? "Điều trị" : "Treatment"],
+              ["care", language === "vi" ? "Chăm sóc" : "How to grow"],
+              ["prevention", language === "vi" ? "Phòng ngừa" : "Prevention"],
+            ] as const
+          ).map(([key, label]) => (
             <button
               key={key}
-              onClick={() => setTab(key as typeof tab)}
+              onClick={() => setTab(key)}
               className={cx(
                 "rounded-2xl px-3 py-3 text-sm font-semibold",
-                tab === key
-                  ? "bg-brand-green text-white"
-                  : "bg-brand-cream text-brand-muted",
+                tab === key ? "bg-brand-green text-white" : "bg-brand-cream text-brand-muted",
               )}
             >
               {label}
@@ -447,15 +897,24 @@ export const ScanResultScreen = () => {
           ))}
         </div>
         <div className="mt-4 space-y-3">
-          {currentList.map((item) => (
-            <div key={item.en} className="rounded-2xl bg-brand-cream px-4 py-3 text-sm text-brand-dark">
-              {item[language]}
-            </div>
-          ))}
+          {lists[tab].length ? (
+            lists[tab].map((item, index) => (
+              <div key={item.en} className="flex gap-3 rounded-2xl bg-brand-cream px-4 py-3">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white text-xs font-bold text-brand-green">
+                  {index + 1}
+                </span>
+                <span className="text-sm text-brand-dark">{item[language]}</span>
+              </div>
+            ))
+          ) : (
+            <p className="rounded-2xl bg-brand-cream px-4 py-3 text-sm text-brand-muted">
+              {language === "vi" ? "Không có khuyến nghị cho mục này." : "No guidance for this tab."}
+            </p>
+          )}
         </div>
       </AppCard>
 
-      <PrimaryButton onClick={handleLog}>
+      <PrimaryButton onClick={handleLog} disabled={alreadyLogged}>
         {alreadyLogged
           ? language === "vi"
             ? "Đã ghi vào sổ"
@@ -464,64 +923,185 @@ export const ScanResultScreen = () => {
             ? "Ghi vào sổ"
             : "Log to ledger"}
       </PrimaryButton>
+
+      <SecondaryButton className="h-12 w-full" onClick={() => navigate("/scan")}>
+        <RotateCcw className="mr-2 h-4 w-4" />
+        {language === "vi" ? "Quét lại" : "Scan again"}
+      </SecondaryButton>
+
+      <p className="text-center text-[11px] leading-relaxed text-brand-muted">
+        {language === "vi"
+          ? "Gợi ý của AI không thay thế cán bộ khuyến nông. Luôn đọc nhãn thuốc trước khi phun."
+          : "AI guidance does not replace an extension officer. Always read the product label before spraying."}
+      </p>
     </div>
   );
 };
 
+const ScanFailure = ({
+  language,
+  title,
+  message,
+  onRetry,
+  image,
+  icon = "error",
+}: {
+  language: "vi" | "en";
+  title: string;
+  message: string;
+  onRetry: () => void;
+  image?: string | null;
+  icon?: "error" | "reject";
+}) => (
+  <div className="space-y-4">
+    <SectionHeading title={title} />
+
+    {image ? (
+      <AppCard className="overflow-hidden p-0">
+        <img src={image} alt="" className="h-40 w-full object-cover" />
+      </AppCard>
+    ) : null}
+
+    <AppCard className={icon === "reject" ? "border-amber-200 bg-amber-50" : "border-rose-200 bg-rose-50"}>
+      <div className="flex gap-3">
+        <AlertTriangle
+          className={cx("h-6 w-6 shrink-0", icon === "reject" ? "text-amber-600" : "text-rose-600")}
+        />
+        <p className={cx("text-sm", icon === "reject" ? "text-amber-900" : "text-rose-900")}>{message}</p>
+      </div>
+    </AppCard>
+
+    <AppCard>
+      <p className="text-sm font-semibold text-brand-ink">
+        {language === "vi" ? "Chụp lại thế nào cho tốt" : "How to take a better photo"}
+      </p>
+      <ul className="mt-2 space-y-1.5 text-sm text-brand-muted">
+        {(language === "vi"
+          ? [
+              "Đưa máy cách lá 20–30 cm, lấy nét vào vết bệnh.",
+              "Chụp ngoài trời hoặc nơi đủ sáng, tránh bóng đổ.",
+              "Chỉ để một lá hoặc một cành trong khung hình.",
+            ]
+          : [
+              "Hold the phone 20–30 cm away and focus on the lesion.",
+              "Shoot in daylight or good light, avoid hard shadows.",
+              "Keep a single leaf or stem in the frame.",
+            ]
+        ).map((line) => (
+          <li key={line}>· {line}</li>
+        ))}
+      </ul>
+    </AppCard>
+
+    <PrimaryButton onClick={onRetry}>
+      <RotateCcw className="mr-2 h-5 w-5" />
+      {language === "vi" ? "Chụp lại" : "Try again"}
+    </PrimaryButton>
+  </div>
+);
 export const FarmScreen = () => {
   const navigate = useNavigate();
   const language = useAppStore((state) => state.language ?? "vi");
+  const selectedZoneId = useAppStore((state) => state.selectedZoneId);
+  const setSelectedZoneId = useAppStore((state) => state.setSelectedZoneId);
+  const [layer, setLayer] = useState<MapLayer>("satellite");
+
+  const zone = farmZones.find((item) => item.id === selectedZoneId) ?? farmZones[0];
+  const geometry = getZoneGeometry(zone.id);
 
   return (
     <div className="space-y-4">
       <SectionHeading
-        title={language === "vi" ? "Khu canh tác" : "Farm zones"}
+        title={language === "vi" ? "Bản đồ nông trại" : "Farm map"}
         subtitle={
           language === "vi"
-            ? "1 ha được chia thành 8 khu, mỗi khu 0,125 ha."
-            : "1 ha split into 8 zones, 0.125 ha each."
+            ? `${formatHectares(farmAreaSqm, "vi")} ha · ${farmZones.length} khu canh tác · Chợ Gạo, Tiền Giang`
+            : `${formatHectares(farmAreaSqm, "en")} ha · ${farmZones.length} zones · Cho Gao, Tien Giang`
         }
+        trailing={<Badge tone="good">{formatHectares(farmAreaSqm, language)} ha</Badge>}
       />
 
-      <AppCard className="bg-field">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold text-brand-dark">{farmerProfile.name} · {farmerProfile.location}</p>
-            <p className="mt-1 text-sm text-brand-muted">
-              {language === "vi" ? "Chạm vào một khu để xem chỉ số cảm biến." : "Tap a zone to view its sensor readings."}
+      <AppCard className="p-3">
+        <FarmMap
+          selectedZoneId={zone.id}
+          onSelectZone={setSelectedZoneId}
+          layer={layer}
+          language={language}
+        />
+
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <LayerToggle layer={layer} onChange={setLayer} language={language} />
+          {layer === "moisture" ? <MoistureLegend language={language} /> : (
+            <p className="text-[11px] font-medium text-brand-muted">
+              {language === "vi"
+                ? "Chạm vào một khu trên bản đồ"
+                : "Tap a zone on the map"}
             </p>
-          </div>
-          <Badge tone="good">1 ha</Badge>
+          )}
         </div>
       </AppCard>
 
-      <div className="grid grid-cols-2 gap-3">
-        {farmZones.map((zone) => (
+      {/* selected-zone sheet */}
+      <AppCard className="bg-field">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-brand-muted">{tText(zone.crop, language)}</p>
+            <h2 className="mt-0.5 text-2xl font-bold text-brand-dark">{tText(zone.name, language)}</h2>
+            <p className="mt-1 text-xs font-medium text-brand-muted">
+              {formatSqm(geometry.areaSqm, language)} m² · {formatHectares(geometry.areaSqm, language)} ha
+            </p>
+          </div>
+          <Badge tone={zone.tone}>{tText(zone.status, language)}</Badge>
+        </div>
+
+        <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+          {[
+            { label: language === "vi" ? "Độ ẩm đất" : "Soil moisture", value: `${zone.moisture}%` },
+            { label: language === "vi" ? "pH đất" : "Soil pH", value: zone.ph.toFixed(1) },
+            { label: language === "vi" ? "Ẩm không khí" : "Air humidity", value: `${zone.humidity}%` },
+          ].map((item) => (
+            <div key={item.label} className="rounded-2xl bg-white/80 px-2 py-3">
+              <p className="text-base font-semibold text-brand-ink">{item.value}</p>
+              <p className="mt-1 text-[11px] font-medium text-brand-muted">{item.label}</p>
+            </div>
+          ))}
+        </div>
+
+        <p className="mt-3 text-[11px] font-medium text-brand-muted">
+          📍 {formatDms(geometry.centre)} · {zone.sensorStation}
+        </p>
+
+        <PrimaryButton className="mt-3" onClick={() => navigate(`/farm/zone/${zone.id}`)}>
+          {language === "vi" ? "Xem chỉ số cảm biến" : "View sensor readings"}
+          <ChevronRight className="ml-1 h-5 w-5" />
+        </PrimaryButton>
+      </AppCard>
+
+      {/* zone list — a second, scannable way into the same eight zones */}
+      <div className="grid grid-cols-4 gap-2">
+        {farmZones.map((item, index) => (
           <button
-            key={zone.id}
-            onClick={() => navigate(`/farm/zone/${zone.id}`)}
-            className="rounded-[28px] text-left transition hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-brand-green"
+            key={item.id}
+            onClick={() => setSelectedZoneId(item.id)}
+            aria-pressed={item.id === zone.id}
+            className={cx(
+              "rounded-2xl border px-1 py-2 text-center transition",
+              item.id === zone.id
+                ? "border-brand-green bg-emerald-50 text-brand-green"
+                : "border-brand-line bg-white text-brand-muted",
+            )}
           >
-            <AppCard className="h-full p-3">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-base font-bold text-brand-dark">{tText(zone.name, language)}</p>
-                  <p className="mt-1 text-xs font-medium text-brand-muted">{tText(zone.crop, language)}</p>
-                </div>
-                <Badge tone={zone.tone}>{zone.moisture}%</Badge>
-              </div>
-              <div className="mt-4 border-t border-brand-line pt-3">
-                <p className="text-xs font-semibold text-brand-ink">{zone.areaHectares} ha</p>
-                <p className="mt-1 text-xs text-brand-muted">pH {zone.ph.toFixed(1)} · NPK</p>
-              </div>
-              <div className="mt-3 flex items-center justify-between text-xs font-semibold text-brand-green">
-                <span>{language === "vi" ? "Xem chỉ số" : "View readings"}</span>
-                <ChevronRight className="h-4 w-4" />
-              </div>
-            </AppCard>
+            <span className="block text-sm font-bold">{index + 1}</span>
+            <span className="block text-[10px] font-semibold">{item.moisture}%</span>
           </button>
         ))}
       </div>
+
+      <p className="text-center text-[11px] text-brand-muted">
+        {language === "vi"
+          ? "Diện tích được tính trực tiếp từ ranh giới GPS trên bản đồ."
+          : "Areas are computed directly from the GPS boundary drawn on the map."}
+      </p>
     </div>
   );
 };
@@ -532,6 +1112,7 @@ export const ZoneDashboardScreen = () => {
   const language = useAppStore((state) => state.language ?? "vi");
   const selectedZoneId = useAppStore((state) => state.selectedZoneId);
   const zone = farmZones.find((item) => item.id === zoneId || item.id === selectedZoneId) ?? farmZones[0];
+  const geometry = getZoneGeometry(zone.id);
   const moistureIsLow = zone.moisture < 50;
 
   return (
@@ -547,9 +1128,12 @@ export const ZoneDashboardScreen = () => {
       <AppCard className="bg-field">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-brand-muted">{tText(zone.crop, language)} · {zone.areaHectares} ha</p>
+            <p className="text-sm font-semibold text-brand-muted">
+              {tText(zone.crop, language)} · {formatHectares(geometry.areaSqm, language)} ha
+            </p>
             <h1 className="mt-1 text-3xl font-bold text-brand-dark">{tText(zone.name, language)}</h1>
             <p className="mt-2 text-sm text-brand-ink">{zone.sensorStation} · LoRaWAN · {language === "vi" ? "pin 87%" : "battery 87%"}</p>
+            <p className="mt-1 text-xs font-medium text-brand-muted">📍 {formatDms(geometry.centre)}</p>
           </div>
           <Badge tone={zone.tone}>{tText(zone.status, language)}</Badge>
         </div>
