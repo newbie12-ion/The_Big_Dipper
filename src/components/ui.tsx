@@ -1,10 +1,8 @@
 import type { ReactNode } from "react";
 import {
   Bell,
-  Camera,
   Home,
   Leaf,
-  LineChart,
   ScanSearch,
   UserRound,
 } from "lucide-react";
@@ -174,31 +172,23 @@ export const ProgressRing = ({
 
 export const BottomNav = ({
   scanLabel,
-  role,
   language,
 }: {
   scanLabel: string;
-  role: "farmer" | "exporter";
   language: "vi" | "en";
 }) => {
-  if (role !== "farmer") {
-    return null;
-  }
-
   const navItems = [
     { label: language === "vi" ? "Trang chủ" : "Home", icon: Home, to: "/home" },
     { label: language === "vi" ? "Nông trại" : "Farm", icon: Leaf, to: "/farm" },
-    { label: scanLabel, icon: Camera, to: "/scan" },
-    { label: language === "vi" ? "Bán hàng" : "Market", icon: LineChart, to: "/market" },
+    { label: scanLabel, icon: ScanSearch, to: "/scan" },
     { label: language === "vi" ? "Hồ sơ" : "Profile", icon: UserRound, to: "/profile" },
   ];
 
   return (
-    <nav className="sticky bottom-0 mt-4 rounded-[30px] border border-brand-line bg-white/95 p-3 shadow-card backdrop-blur">
-      <div className="grid grid-cols-5 gap-2">
-        {navItems.map((item, index) => {
-          const Icon = index === 2 ? ScanSearch : item.icon;
-          const center = index === 2;
+    <nav className="shrink-0 rounded-[30px] border border-brand-line bg-white/95 p-2 shadow-card backdrop-blur">
+      <div className="grid grid-cols-4 gap-2">
+        {navItems.map((item) => {
+          const Icon = item.icon;
 
           return (
             <NavLink
@@ -206,16 +196,12 @@ export const BottomNav = ({
               to={item.to}
               className={({ isActive }) =>
                 cx(
-                  "flex min-h-14 flex-col items-center justify-center rounded-2xl px-1 text-center text-[11px] font-medium transition",
-                  center
-                    ? "bg-brand-green text-white shadow-lg"
-                    : isActive
-                      ? "bg-emerald-50 text-brand-green"
-                      : "text-brand-muted",
+                  "flex min-h-[62px] flex-col items-center justify-center rounded-2xl px-1 text-center text-[11px] font-semibold transition",
+                  isActive ? "bg-emerald-50 text-brand-green" : "text-brand-muted",
                 )
               }
             >
-              <Icon className={cx("mb-1 h-4 w-4", center && "h-5 w-5")} />
+              <Icon className="mb-1 h-5 w-5" />
               <span>{item.label}</span>
             </NavLink>
           );

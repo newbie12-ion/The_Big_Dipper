@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
+  ArrowLeft,
   ChevronRight,
   CloudRain,
   Droplets,
@@ -19,20 +20,19 @@ import {
   certificateRows,
   coopRain,
   device,
-  exporterBatches,
+  farmZones,
   nearbyAlert,
   satelliteInsights,
   scanScenarios,
   sensorHistory,
   weatherCard,
 } from "../data/mockData";
-import { formatMoney, tText } from "../lib/i18n";
+import { tText } from "../lib/i18n";
 import {
   farmerProfile,
   getCertificateReadiness,
   plots,
   useAppStore,
-  type Role,
 } from "../store/appStore";
 import {
   AppCard,
@@ -69,19 +69,12 @@ const filterLabels = {
   sale: { vi: "Bán hàng", en: "Sale" },
 };
 
-const roleLabels: Record<Role, { vi: string; en: string }> = {
-  farmer: { vi: "Nông dân", en: "Farmer" },
-  exporter: { vi: "Nhà nhập khẩu", en: "Exporter" },
-};
-
 export const WelcomeScreen = () => {
   const navigate = useNavigate();
   const setLanguage = useAppStore((state) => state.setLanguage);
-  const setRole = useAppStore((state) => state.setRole);
 
   const pickLanguage = (language: "vi" | "en") => {
     setLanguage(language);
-    setRole("farmer");
     navigate("/home");
   };
 
@@ -482,61 +475,159 @@ export const FarmScreen = () => {
   return (
     <div className="space-y-4">
       <SectionHeading
-        title={language === "vi" ? "Hồ sơ nông dân" : "Farmer profile"}
+        title={language === "vi" ? "Khu canh tác" : "Farm zones"}
         subtitle={
           language === "vi"
-            ? "Cơ sở dữ liệu số cho toàn bộ vườn."
-            : "Digital record for the entire farm."
+            ? "1 ha được chia thành 8 khu, mỗi khu 0,125 ha."
+            : "1 ha split into 8 zones, 0.125 ha each."
         }
       />
 
-      <AppCard>
-        <div className="flex items-start gap-4">
-          <img
-            src={farmerProfile.avatarUrl}
-            alt={farmerProfile.name}
-            className="h-20 w-20 rounded-3xl object-cover"
-          />
-          <div className="space-y-1">
-            <h1 className="text-2xl font-bold text-brand-dark">{farmerProfile.name}</h1>
-            <p className="text-sm text-brand-muted">{farmerProfile.location}</p>
-            <p className="text-sm text-brand-muted">{farmerProfile.cooperative}</p>
-            <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-              <Badge tone="good">{farmerProfile.areaHectares} ha</Badge>
-              <Badge tone="neutral">
-                {language === "vi" ? `Từ ${farmerProfile.memberSince}` : `Since ${farmerProfile.memberSince}`}
-              </Badge>
-            </div>
+      <AppCard className="bg-field">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-brand-dark">{farmerProfile.name} · {farmerProfile.location}</p>
+            <p className="mt-1 text-sm text-brand-muted">
+              {language === "vi" ? "Chạm vào một khu để xem chỉ số cảm biến." : "Tap a zone to view its sensor readings."}
+            </p>
           </div>
+          <Badge tone="good">1 ha</Badge>
         </div>
       </AppCard>
 
-      <div className="space-y-3">
-        {plots.map((plot) => (
+      <div className="grid grid-cols-2 gap-3">
+        {farmZones.map((zone) => (
           <button
-            key={plot.id}
-            onClick={() => navigate(`/plot/${plot.id}`)}
-            className="w-full text-left"
+            key={zone.id}
+            onClick={() => navigate(`/farm/zone/${zone.id}`)}
+            className="rounded-[28px] text-left transition hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-brand-green"
           >
-            <AppCard>
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-2xl">
-                    {plot.icon}
-                  </div>
-                  <div>
-                    <p className="font-semibold text-brand-dark">{tText(plot.crop, language)}</p>
-                    <p className="text-sm text-brand-muted">
-                      {plot.area} · {plot.plantingDate}
-                    </p>
-                  </div>
+            <AppCard className="h-full p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-base font-bold text-brand-dark">{tText(zone.name, language)}</p>
+                  <p className="mt-1 text-xs font-medium text-brand-muted">{tText(zone.crop, language)}</p>
                 </div>
-                <ChevronRight className="h-5 w-5 text-brand-muted" />
+                <Badge tone={zone.tone}>{zone.moisture}%</Badge>
+              </div>
+              <div className="mt-4 border-t border-brand-line pt-3">
+                <p className="text-xs font-semibold text-brand-ink">{zone.areaHectares} ha</p>
+                <p className="mt-1 text-xs text-brand-muted">pH {zone.ph.toFixed(1)} · NPK</p>
+              </div>
+              <div className="mt-3 flex items-center justify-between text-xs font-semibold text-brand-green">
+                <span>{language === "vi" ? "Xem chỉ số" : "View readings"}</span>
+                <ChevronRight className="h-4 w-4" />
               </div>
             </AppCard>
           </button>
         ))}
       </div>
+    </div>
+  );
+};
+
+export const ZoneDashboardScreen = () => {
+  const navigate = useNavigate();
+  const { zoneId } = useParams();
+  const language = useAppStore((state) => state.language ?? "vi");
+  const selectedZoneId = useAppStore((state) => state.selectedZoneId);
+  const zone = farmZones.find((item) => item.id === zoneId || item.id === selectedZoneId) ?? farmZones[0];
+  const moistureIsLow = zone.moisture < 50;
+
+  return (
+    <div className="space-y-4">
+      <button
+        onClick={() => navigate("/farm")}
+        className="inline-flex items-center gap-2 rounded-xl px-1 py-2 text-sm font-semibold text-brand-ink"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        {language === "vi" ? "Tất cả khu" : "All zones"}
+      </button>
+
+      <AppCard className="bg-field">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-brand-muted">{tText(zone.crop, language)} · {zone.areaHectares} ha</p>
+            <h1 className="mt-1 text-3xl font-bold text-brand-dark">{tText(zone.name, language)}</h1>
+            <p className="mt-2 text-sm text-brand-ink">{zone.sensorStation} · LoRaWAN · {language === "vi" ? "pin 87%" : "battery 87%"}</p>
+          </div>
+          <Badge tone={zone.tone}>{tText(zone.status, language)}</Badge>
+        </div>
+      </AppCard>
+
+      {moistureIsLow ? (
+        <AppCard className="border-amber-200 bg-amber-50">
+          <p className="text-sm font-semibold text-amber-900">
+            ⚠ {language === "vi" ? "Độ ẩm đất thấp — nên tưới trong hôm nay." : "Soil moisture is low — irrigate today."}
+          </p>
+        </AppCard>
+      ) : null}
+
+      <SectionHeading
+        title={language === "vi" ? "Chỉ số cảm biến" : "Sensor readings"}
+        subtitle={language === "vi" ? "Dữ liệu mới nhất của khu này." : "Latest readings for this zone."}
+      />
+
+      <div className="grid grid-cols-2 gap-3">
+        <StatCard
+          label={language === "vi" ? "pH đất" : "Soil pH"}
+          value={zone.ph.toFixed(1)}
+          icon="🧪"
+          tone={zone.ph >= 5.5 && zone.ph <= 6.8 ? "good" : "warn"}
+        />
+        <StatCard
+          label={language === "vi" ? "Độ ẩm đất" : "Soil moisture"}
+          value={`${zone.moisture}%`}
+          icon="💧"
+          tone={zone.moisture >= 50 ? "good" : "warn"}
+        />
+        <AppCard className="p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-2xl">🌿</span>
+            <Badge tone="good">NPK</Badge>
+          </div>
+          <p className="text-base font-bold text-brand-ink">
+            N {zone.npk.nitrogen} · P {zone.npk.phosphorus} · K {zone.npk.potassium}
+          </p>
+          <p className="mt-1 text-xs font-medium text-brand-muted">mg/kg</p>
+        </AppCard>
+        <StatCard
+          label={language === "vi" ? "Độ ẩm không khí" : "Air humidity"}
+          value={`${zone.humidity}%`}
+          icon="☁️"
+          tone="neutral"
+        />
+      </div>
+
+      <AppCard>
+        <SectionHeading
+          title={language === "vi" ? "Độ ẩm đất · 24 giờ" : "Soil moisture · 24 hours"}
+          subtitle={language === "vi" ? "Phần trăm (%)" : "Percent (%)"}
+          trailing={<Badge tone={zone.moisture >= 50 ? "good" : "warn"}>{zone.moisture}%</Badge>}
+        />
+        <div className="h-52" role="img" aria-label={language === "vi" ? "Biểu đồ độ ẩm đất 24 giờ" : "24-hour soil moisture chart"}>
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={zone.moistureHistory}>
+              <defs>
+                <linearGradient id="zoneMoistureFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#16a34a" stopOpacity={0.38} />
+                  <stop offset="95%" stopColor="#16a34a" stopOpacity={0.05} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid stroke="#dce6de" vertical={false} />
+              <XAxis dataKey="hour" tick={{ fill: "#3f5148", fontSize: 11 }} />
+              <YAxis width={28} tick={{ fill: "#3f5148", fontSize: 11 }} domain={[30, 80]} />
+              <Tooltip />
+              <Area type="monotone" dataKey="moisture" name={language === "vi" ? "Độ ẩm đất" : "Soil moisture"} unit="%" stroke="#16a34a" fill="url(#zoneMoistureFill)" strokeWidth={3} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </AppCard>
+
+      <AppCard className="border-sky-100 bg-sky-50">
+        <p className="text-sm font-semibold text-brand-ink">🌧 {language === "vi" ? "Vũ kế HTX Chợ Gạo · 1,2 km · 0 mm/24h" : "Cho Gao co-op rain gauge · 1.2 km · 0 mm/24h"}</p>
+        <p className="mt-1 text-sm text-brand-muted">{language === "vi" ? "Mưa được đọc từ vũ kế của hợp tác xã." : "Rain comes from the cooperative gauge."}</p>
+      </AppCard>
     </div>
   );
 };
@@ -902,14 +993,14 @@ export const CertificateScreen = () => {
   const readiness = useAppStore(getCertificateReadiness);
   const qrValue =
     typeof window !== "undefined"
-      ? `${window.location.origin}${window.location.pathname}#/exporter/verify/batch-dragon`
-      : "https://agritrust.demo/#/exporter/verify/batch-dragon";
+      ? `${window.location.origin}${window.location.pathname}#/certificate`
+      : "https://agritrust.demo/#/certificate";
 
   return (
     <div className="space-y-4">
       <SectionHeading
         title={language === "vi" ? "Chứng nhận nháp" : "Draft certificate"}
-        subtitle={language === "vi" ? "QR thật để mở trang kiểm chứng." : "Live QR opens the verification page."}
+        subtitle={language === "vi" ? "QR thật để mở hộ chiếu số của nông trại." : "Live QR opens the farm's digital passport."}
       />
 
       <AppCard className="border-emerald-200 bg-white">
@@ -980,72 +1071,6 @@ export const CertificateScreen = () => {
   );
 };
 
-export const MarketScreen = () => {
-  const navigate = useNavigate();
-  const language = useAppStore((state) => state.language ?? "vi");
-  const marketSold = useAppStore((state) => state.marketSold);
-  const batchStatus = useAppStore((state) => state.batchStatus);
-  const listBatch = useAppStore((state) => state.listBatch);
-  const batch = exporterBatches[0];
-
-  return (
-    <div className="space-y-4">
-      <SectionHeading
-        title={language === "vi" ? "Bán hàng" : "Market"}
-        subtitle={language === "vi" ? "Bán trực tiếp với premium nhờ chứng nhận." : "Sell direct with a certification premium."}
-      />
-
-      <AppCard className="bg-brand-dark text-white">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-sm text-emerald-100">{batch.weight}</p>
-            <h2 className="mt-1 text-2xl font-semibold">{batch.crop[language]}</h2>
-            <p className="mt-2 text-sm text-emerald-100">
-              {marketSold
-                ? language === "vi"
-                  ? "Đã bán trực tiếp cho nhà nhập khẩu EU"
-                  : "Sold directly to an EU importer"
-                : language === "vi"
-                  ? "Sẵn sàng niêm yết với premium +15-30%"
-                  : "Ready to list with a +15-30% premium"}
-            </p>
-          </div>
-          <Badge tone="good">{marketSold ? "Sold +22%" : "Certified ✓"}</Badge>
-        </div>
-
-        <div className="mt-5 rounded-3xl bg-white/10 p-4">
-          <div className="flex items-center justify-between text-sm">
-            <span>{language === "vi" ? "Giá thị trường" : "Market price"}</span>
-            <span>{formatMoney(batch.marketPrice, language)}</span>
-          </div>
-          <div className="mt-2 flex items-center justify-between text-base font-semibold">
-            <span>{language === "vi" ? "Giá chứng nhận" : "Certified price"}</span>
-            <span>{formatMoney(batch.premiumPrice, language)}</span>
-          </div>
-        </div>
-      </AppCard>
-
-      <PrimaryButton
-        onClick={() => {
-          if (batchStatus === "draft") {
-            listBatch();
-            return;
-          }
-          navigate("/exporter");
-        }}
-      >
-        {marketSold
-          ? language === "vi"
-            ? "Xem giao dịch đã hoàn tất"
-            : "View completed deal"
-          : batchStatus === "draft"
-            ? language === "vi" ? "Đăng bán lô hàng" : "List batch for sale"
-            : language === "vi" ? "Mở cổng nhà nhập khẩu" : "Open exporter portal"}
-      </PrimaryButton>
-    </div>
-  );
-};
-
 export const NotificationsScreen = () => {
   const language = useAppStore((state) => state.language ?? "vi");
   const notifications = useAppStore((state) => state.notifications);
@@ -1058,7 +1083,7 @@ export const NotificationsScreen = () => {
     <div className="space-y-4">
       <SectionHeading
         title={language === "vi" ? "Thông báo" : "Notifications"}
-        subtitle={language === "vi" ? "Tin mới từ vườn và thị trường của bạn." : "Updates from your farm and market."}
+        subtitle={language === "vi" ? "Tin mới từ vườn của bạn." : "Updates from your farm."}
       />
       {notifications.map((notification) => (
         <AppCard key={notification.id} className={notification.read ? "" : "border-emerald-200"}>
@@ -1079,8 +1104,6 @@ export const NotificationsScreen = () => {
 export const ProfileScreen = () => {
   const navigate = useNavigate();
   const language = useAppStore((state) => state.language ?? "vi");
-  const role = useAppStore((state) => state.role);
-  const setRole = useAppStore((state) => state.setRole);
   const toggleLanguage = useAppStore((state) => state.toggleLanguage);
   const resetDemo = useAppStore((state) => state.resetDemo);
   const holdTimer = useRef<number | undefined>(undefined);
@@ -1089,7 +1112,7 @@ export const ProfileScreen = () => {
     <div className="space-y-4">
       <SectionHeading
         title={language === "vi" ? "Hồ sơ & cài đặt" : "Profile & settings"}
-        subtitle={language === "vi" ? "Đổi ngôn ngữ hoặc chuyển vai trò demo." : "Switch language or role for the demo."}
+        subtitle={language === "vi" ? "Quản lý ngôn ngữ cho ứng dụng nông trại." : "Manage the language for your farm app."}
       />
 
       <AppCard>
@@ -1120,32 +1143,6 @@ export const ProfileScreen = () => {
           <SecondaryButton onClick={toggleLanguage}>
             {language === "vi" ? "Đổi sang EN" : "Switch to VI"}
           </SecondaryButton>
-        </div>
-      </AppCard>
-
-      <AppCard>
-        <SectionHeading
-          title={language === "vi" ? "Vai trò" : "Role"}
-          trailing={<Badge tone="neutral">{roleLabels[role][language]}</Badge>}
-        />
-        <div className="grid grid-cols-2 gap-2">
-          {(["farmer", "exporter"] as Role[]).map((nextRole) => (
-            <button
-              key={nextRole}
-              onClick={() => {
-                setRole(nextRole);
-                navigate(nextRole === "farmer" ? "/home" : "/exporter");
-              }}
-              className={cx(
-                "rounded-2xl px-4 py-3 text-sm font-semibold",
-                role === nextRole
-                  ? "bg-brand-green text-white"
-                  : "bg-brand-cream text-brand-muted",
-              )}
-            >
-              {roleLabels[nextRole][language]}
-            </button>
-          ))}
         </div>
       </AppCard>
 
