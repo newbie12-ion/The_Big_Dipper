@@ -1,0 +1,7 @@
+<svg width="600" height="450" viewBox="0 0 600 450" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="600" height="450" fill="#315F3B"/><circle cx="468" cy="90" r="88" fill="#D7C56B" opacity=".2"/>
+  <path d="M300 450C300 317 303 183 300 51" stroke="#93B95A" stroke-width="15" stroke-linecap="round"/>
+  <g fill="#7CC05F" stroke="#B9DE82" stroke-width="5"><path d="M300 178C231 157 184 178 146 237C224 252 274 223 300 178Z"/><path d="M301 220C370 195 421 220 457 278C374 294 326 269 301 220Z"/><path d="M299 294C229 270 180 294 143 352C220 369 272 340 299 294Z"/><path d="M301 332C365 308 414 331 452 384C378 405 326 380 301 332Z"/></g>
+  <circle cx="300" cy="108" r="47" fill="#D89E4B"/><path d="M280 107H320M300 87V127" stroke="#FFF7DE" stroke-width="10" stroke-linecap="round"/>
+  <text x="38" y="63" fill="white" font-family="sans-serif" font-size="25" font-weight="700">UNKNOWN PLANT · NEEDS REVIEW</text>
+</svg>
