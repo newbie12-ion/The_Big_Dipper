@@ -3,7 +3,6 @@ import { persist } from "zustand/middleware";
 import {
   baseNotifications,
   buildPumpEvent,
-  buildScanEvent,
   exporterBatches,
   farmerProfile,
   plots,
@@ -19,10 +18,14 @@ import {
   type ZoneId,
 } from "../data/mockData";
 import { persistDemoState, persistLedgerEvent, persistNotification } from "../lib/backend";
+import type { AiScanResult, VisionErrorKind } from "../lib/vision";
+import { sha256Hex } from "../lib/hash";
 import type { Language, LocalizedText } from "../lib/i18n";
 
 export type Role = "farmer" | "exporter";
 export type BatchStatus = "draft" | "listed" | "sold";
+/** Lifecycle of one camera-to-diagnosis round trip. */
+export type ScanPhase = "idle" | "analyzing" | "done" | "error";
 
 interface AppState {
   language: Language | null;
@@ -45,6 +48,14 @@ interface AppState {
   batchStatus: BatchStatus;
   marketSold: boolean;
   loggedScanIds: string[];
+  // ── live AI scan (never persisted: the photo is a multi-MB data URL) ──
+  scanPhase: ScanPhase;
+  capturedImage: string | null;
+  aiResult: AiScanResult | null;
+  /** Failure category, never a raw provider message — the UI localises it. */
+  aiError: VisionErrorKind | null;
+  /** Stable id for the current result, so it can only be logged once. */
+  aiScanId: string | null;
   ledger: LedgerEvent[];
   ledgerEvents: LedgerEvent[];
   lastBlock: number;
@@ -58,7 +69,12 @@ interface AppState {
   setSelectedZoneId: (zoneId: ZoneId) => void;
   setSelectedScanId: (scanId: string) => void;
   addEvent: (type: EventType, title: LocalizedText, detail?: LocalizedText) => LedgerEvent;
-  logSelectedScan: () => LedgerEvent | undefined;
+  beginScan: (imageDataUrl: string) => void;
+  completeScan: (result: AiScanResult) => void;
+  failScan: (kind: VisionErrorKind) => void;
+  resetScan: () => void;
+  /** Write the current AI diagnosis to the ledger. No-op if already logged. */
+  logAiScan: () => LedgerEvent | undefined;
   togglePump: () => void;
   tick: () => void;
   readiness: () => number;
@@ -93,6 +109,11 @@ const initialState = () => ({
   pumpOn: false, irrigationOn: false, pumpTicks: 0, pumpCycles: 0,
   batchStatus: "draft" as BatchStatus, marketSold: false,
   loggedScanIds: [] as string[],
+  scanPhase: "idle" as ScanPhase,
+  capturedImage: null as string | null,
+  aiResult: null as AiScanResult | null,
+  aiError: null as VisionErrorKind | null,
+  aiScanId: null as string | null,
   ledger: sortEvents(seededLedgerEvents),
   ledgerEvents: sortEvents(seededLedgerEvents),
   lastBlock: 48305,
@@ -111,6 +132,68 @@ const syncDemoState = (state: AppState) => {
 
 export const getCertificateReadiness = (state: Pick<AppState, "ledger">) =>
   Math.min(96, 78 + Math.max(0, state.ledger.length - 14) * 2);
+
+/**
+ * One minute after the latest event already in the ledger.
+ *
+ * `sortEvents` orders by the "HH:MM" label, so a wall-clock timestamp would
+ * bury a fresh scan under the seeded 18:xx history whenever the demo runs in
+ * the morning. Deriving it from the ledger keeps new records on top at any
+ * hour of the day.
+ */
+const nextTimestamp = (events: LedgerEvent[]) => {
+  const minutes = events.map((event) => {
+    const [hours, mins] = event.timestamp.split(":").map(Number);
+    return Number.isFinite(hours) && Number.isFinite(mins) ? hours * 60 + mins : 0;
+  });
+  const next = Math.min(23 * 60 + 59, Math.max(0, ...minutes) + 1);
+  return `${String(Math.floor(next / 60)).padStart(2, "0")}:${String(next % 60).padStart(2, "0")}`;
+};
+
+/** Route the diagnosis to the plot whose crop the model actually identified. */
+const matchPlotId = (result: AiScanResult, fallback: PlotId): PlotId => {
+  const detected = `${result.plantName?.vi ?? ""} ${result.plantName?.en ?? ""}`.toLowerCase();
+  if (!detected.trim()) return fallback;
+  const hit = plots.find(
+    (plot) =>
+      detected.includes(plot.crop.vi.toLowerCase()) ||
+      detected.includes(plot.crop.en.toLowerCase()),
+  );
+  return hit?.id ?? fallback;
+};
+
+const buildAiScanEvent = (
+  result: AiScanResult,
+  scanId: string,
+  blockNumber: number,
+  timestamp: string,
+): LedgerEvent => {
+  const plant = result.plantName ?? { vi: "Cây trồng", en: "Crop" };
+  const diagnosis = result.diagnosis ?? { vi: "Không phát hiện bệnh", en: "No disease detected" };
+  const healthy = result.status === "healthy";
+  const phi = result.preHarvestIntervalDays ?? 0;
+
+  const title = healthy
+    ? { vi: `AI xác nhận ${plant.vi} khỏe mạnh`, en: `AI confirmed healthy ${plant.en}` }
+    : { vi: `AI phát hiện ${diagnosis.vi}`, en: `AI detected ${diagnosis.en}` };
+
+  const detail = {
+    vi: `${plant.vi} · độ tin cậy ${result.confidence}%${phi ? ` · cách ly ${phi} ngày` : ""}`,
+    en: `${plant.en} · ${result.confidence}% confidence${phi ? ` · ${phi}-day pre-harvest interval` : ""}`,
+  };
+
+  return {
+    id: `evt-scan-${scanId}`,
+    type: "scan",
+    title,
+    detail,
+    timestamp,
+    // A genuine SHA-256 over the diagnosis payload — this is the digest the
+    // certificate QR lets a buyer re-compute and check.
+    hash: sha256Hex(JSON.stringify({ scanId, title, detail, blockNumber })),
+    blockNumber,
+  };
+};
 
 export const useAppStore = create<AppState>()(
   persist(
@@ -144,16 +227,42 @@ export const useAppStore = create<AppState>()(
         void persistLedgerEvent(event);
         return event;
       },
-      logSelectedScan: () => {
+      beginScan: (capturedImage) =>
+        set({
+          capturedImage,
+          scanPhase: "analyzing",
+          aiResult: null,
+          aiError: null,
+          // The id is the photo's own digest, so re-analysing the same shot
+          // cannot double-write the ledger.
+          aiScanId: `ai-${sha256Hex(capturedImage).slice(0, 16)}`,
+        }),
+      completeScan: (aiResult) => {
+        // A refusal or an unusable photo is a real outcome, not a diagnosis:
+        // it reaches the result screen but must never touch the ledger.
+        const plotId = matchPlotId(aiResult, get().selectedPlotId);
+        set({ scanPhase: "done", aiResult, aiError: null, selectedPlotId: plotId });
+      },
+      failScan: (aiError) => set({ scanPhase: "error", aiError, aiResult: null }),
+      resetScan: () =>
+        set({ scanPhase: "idle", capturedImage: null, aiResult: null, aiError: null, aiScanId: null }),
+      logAiScan: () => {
         const state = get();
-        if (state.loggedScanIds.includes(state.selectedScanId)) return undefined;
-        const scenario = scanScenarios.find((item) => item.id === state.selectedScanId);
-        if (!scenario) return undefined;
-        const event = buildScanEvent(scenario);
+        const result = state.aiResult;
+        const scanId = state.aiScanId;
+        if (!result || !scanId || !result.isPlant) return undefined;
+        if (state.loggedScanIds.includes(scanId)) return undefined;
+
+        const event = buildAiScanEvent(
+          result,
+          scanId,
+          state.lastBlock + 1,
+          nextTimestamp(state.ledger),
+        );
         const ledger = sortEvents([event, ...state.ledger]);
         const notifications = [scanLoggedNotification, ...state.notifications];
         set({ ledger, ledgerEvents: ledger, lastBlock: event.blockNumber,
-          loggedScanIds: [...state.loggedScanIds, scenario.id], notifications, notifs: notifications });
+          loggedScanIds: [...state.loggedScanIds, scanId], notifications, notifs: notifications });
         void persistLedgerEvent(event); void persistNotification(scanLoggedNotification);
         return event;
       },

@@ -4,3 +4,14 @@ dist
 .env
 .env.local
 .env.*.local
+
+# Emitted by `tsc -b` from the node/tooling tsconfig — build output, not source.
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+tailwind.config.js
+tailwind.config.d.ts
+
+# Local tooling
+.claude/
+graphify-out/

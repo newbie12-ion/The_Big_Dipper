@@ -30,13 +30,6 @@ const PlotSelectionSync = () => {
   return null;
 };
 
-const ScanSelectionSync = () => {
-  const { photoId } = useParams();
-  const setSelectedScanId = useAppStore((state) => state.setSelectedScanId);
-  useEffect(() => { if (photoId) setSelectedScanId(photoId); }, [photoId, setSelectedScanId]);
-  return null;
-};
-
 const ZoneSelectionSync = () => {
   const { zoneId } = useParams();
   const setSelectedZoneId = useAppStore((state) => state.setSelectedZoneId);
@@ -62,7 +55,8 @@ const AppRoutes = () => (
     <Route path="/plot/:id/certificate" element={<PlotRoute><CertificateScreen /></PlotRoute>} />
     <Route path="/scan" element={<ScanCaptureScreen />} />
     <Route path="/scan/analyzing" element={<ScanAnalyzingScreen />} />
-    <Route path="/scan/result/:photoId" element={<><ScanSelectionSync /><ScanResultScreen /></>} />
+    {/* Results are the live AI response held in the store, not a fixture id. */}
+    <Route path="/scan/result" element={<ScanResultScreen />} />
     <Route path="/notifications" element={<NotificationsScreen />} />
     <Route path="/profile" element={<ProfileScreen />} />
     <Route path="*" element={<Navigate to="/" replace />} />
