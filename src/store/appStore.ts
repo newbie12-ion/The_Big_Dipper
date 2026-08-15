@@ -16,6 +16,7 @@ import {
   type LedgerEvent,
   type NotificationItem,
   type PlotId,
+  type ZoneId,
 } from "../data/mockData";
 import { persistDemoState, persistLedgerEvent, persistNotification } from "../lib/backend";
 import type { Language, LocalizedText } from "../lib/i18n";
@@ -29,6 +30,7 @@ interface AppState {
   langChosen: boolean;
   role: Role;
   selectedPlotId: PlotId;
+  selectedZoneId: ZoneId;
   selectedScanId: string;
   moisture: number;
   soilEC: number;
@@ -53,6 +55,7 @@ interface AppState {
   toggleLanguage: () => void;
   setRole: (role: Role) => void;
   setSelectedPlotId: (plotId: PlotId) => void;
+  setSelectedZoneId: (zoneId: ZoneId) => void;
   setSelectedScanId: (scanId: string) => void;
   addEvent: (type: EventType, title: LocalizedText, detail?: LocalizedText) => LedgerEvent;
   logSelectedScan: () => LedgerEvent | undefined;
@@ -83,6 +86,7 @@ const initialState = () => ({
   langChosen: false,
   role: "farmer" as Role,
   selectedPlotId: "plot-dragon" as PlotId,
+  selectedZoneId: "zone-1" as ZoneId,
   selectedScanId: "dragon-anthracnose",
   moisture: 41, soilEC: 1.1, temp: 31, humidity: 72, rainMm24h: 0,
   history: initialHistory,
@@ -121,6 +125,7 @@ export const useAppStore = create<AppState>()(
       toggleLanguage: () => get().setLanguage(get().lang === "vi" ? "en" : "vi"),
       setRole: (role) => set({ role }),
       setSelectedPlotId: (selectedPlotId) => set({ selectedPlotId }),
+      setSelectedZoneId: (selectedZoneId) => set({ selectedZoneId }),
       setSelectedScanId: (selectedScanId) => {
         const scenario = scanScenarios.find((item) => item.id === selectedScanId);
         set({ selectedScanId, selectedPlotId: scenario?.affectsPlotId ?? get().selectedPlotId });
@@ -198,7 +203,7 @@ export const useAppStore = create<AppState>()(
       name: "agritrust-demo-v2",
       partialize: (state) => ({
         language: state.language, lang: state.lang, langChosen: state.langChosen, role: state.role,
-        selectedPlotId: state.selectedPlotId, selectedScanId: state.selectedScanId, moisture: state.moisture,
+        selectedPlotId: state.selectedPlotId, selectedZoneId: state.selectedZoneId, selectedScanId: state.selectedScanId, moisture: state.moisture,
         soilEC: state.soilEC, temp: state.temp, humidity: state.humidity, rainMm24h: state.rainMm24h,
         history: state.history, pumpOn: state.pumpOn, irrigationOn: state.irrigationOn, pumpTicks: state.pumpTicks,
         pumpCycles: state.pumpCycles, batchStatus: state.batchStatus, marketSold: state.marketSold,

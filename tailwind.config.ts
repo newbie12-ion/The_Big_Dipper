@@ -11,7 +11,7 @@ export default {
           amber: "#c17f23",
           cream: "#f8f5ef",
           ink: "#12312a",
-          muted: "#6a7d72",
+          muted: "#3f5148",
           line: "#dce6de",
         },
       },

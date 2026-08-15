@@ -1,6 +1,15 @@
 import { LocalizedText } from "../lib/i18n";
 
 export type PlotId = "plot-dragon" | "plot-coffee";
+export type ZoneId =
+  | "zone-1"
+  | "zone-2"
+  | "zone-3"
+  | "zone-4"
+  | "zone-5"
+  | "zone-6"
+  | "zone-7"
+  | "zone-8";
 export type EventType =
   | "scan"
   | "irrigation"
@@ -30,6 +39,21 @@ export interface PlotSummary {
   soilMoisture: number;
   badgeTone: "good" | "warn" | "alert";
   icon: string;
+}
+
+export interface FarmZone {
+  id: ZoneId;
+  name: LocalizedText;
+  crop: LocalizedText;
+  areaHectares: number;
+  sensorStation: string;
+  ph: number;
+  moisture: number;
+  npk: { nitrogen: number; phosphorus: number; potassium: number };
+  humidity: number;
+  status: LocalizedText;
+  tone: "good" | "warn" | "alert";
+  moistureHistory: Array<{ hour: string; moisture: number }>;
 }
 
 export interface ScanScenario {
@@ -91,9 +115,9 @@ export const farmerProfile: FarmerProfile = {
   name: "Chị Hoa",
   location: "Tiền Giang, Việt Nam",
   cooperative: "Mekong Fresh Cooperative",
-  areaHectares: 0.7,
+  areaHectares: 1,
   memberSince: "2021",
-  plotCount: 2,
+  plotCount: 8,
   avatarUrl: "/demo/farmer-hoa.svg",
 };
 
@@ -101,7 +125,7 @@ export const plots: PlotSummary[] = [
   {
     id: "plot-dragon",
     crop: { vi: "Thanh long", en: "Dragon fruit" },
-    area: "0.4 ha",
+    area: "0.5 ha",
     plantingDate: "12 Mar 2025",
     healthStatus: { vi: "Cần chú ý", en: "Needs attention" },
     soilMoisture: 41,
@@ -111,12 +135,77 @@ export const plots: PlotSummary[] = [
   {
     id: "plot-coffee",
     crop: { vi: "Cà phê", en: "Coffee" },
-    area: "0.3 ha",
+    area: "0.5 ha",
     plantingDate: "28 Jun 2024",
     healthStatus: { vi: "Ổn định", en: "Stable" },
     soilMoisture: 63,
     badgeTone: "good",
     icon: "☕",
+  },
+];
+
+const zoneHistory = (values: number[]) =>
+  ["00:00", "04:00", "08:00", "12:00", "16:00", "20:00", "Now"].map((hour, index) => ({
+    hour,
+    moisture: values[index],
+  }));
+
+export const farmZones: FarmZone[] = [
+  {
+    id: "zone-1", name: { vi: "Khu 1", en: "Zone 1" }, crop: { vi: "Thanh long", en: "Dragon fruit" },
+    areaHectares: 0.125, sensorStation: "Trạm #A-101", ph: 6.4, moisture: 41,
+    npk: { nitrogen: 58, phosphorus: 32, potassium: 64 }, humidity: 72,
+    status: { vi: "Cần tưới hôm nay", en: "Water today" }, tone: "warn",
+    moistureHistory: zoneHistory([58, 55, 52, 48, 44, 42, 41]),
+  },
+  {
+    id: "zone-2", name: { vi: "Khu 2", en: "Zone 2" }, crop: { vi: "Thanh long", en: "Dragon fruit" },
+    areaHectares: 0.125, sensorStation: "Trạm #A-102", ph: 6.3, moisture: 55,
+    npk: { nitrogen: 62, phosphorus: 35, potassium: 61 }, humidity: 70,
+    status: { vi: "Ổn định", en: "Stable" }, tone: "good",
+    moistureHistory: zoneHistory([61, 60, 59, 57, 56, 55, 55]),
+  },
+  {
+    id: "zone-3", name: { vi: "Khu 3", en: "Zone 3" }, crop: { vi: "Thanh long", en: "Dragon fruit" },
+    areaHectares: 0.125, sensorStation: "Trạm #A-103", ph: 6.5, moisture: 51,
+    npk: { nitrogen: 55, phosphorus: 30, potassium: 68 }, humidity: 71,
+    status: { vi: "Ổn định", en: "Stable" }, tone: "good",
+    moistureHistory: zoneHistory([60, 58, 56, 54, 52, 51, 51]),
+  },
+  {
+    id: "zone-4", name: { vi: "Khu 4", en: "Zone 4" }, crop: { vi: "Thanh long", en: "Dragon fruit" },
+    areaHectares: 0.125, sensorStation: "Trạm #A-104", ph: 6.2, moisture: 47,
+    npk: { nitrogen: 50, phosphorus: 28, potassium: 57 }, humidity: 73,
+    status: { vi: "Theo dõi độ ẩm", en: "Watch moisture" }, tone: "warn",
+    moistureHistory: zoneHistory([59, 56, 53, 50, 49, 48, 47]),
+  },
+  {
+    id: "zone-5", name: { vi: "Khu 5", en: "Zone 5" }, crop: { vi: "Cà phê", en: "Coffee" },
+    areaHectares: 0.125, sensorStation: "Trạm #A-105", ph: 5.8, moisture: 63,
+    npk: { nitrogen: 66, phosphorus: 38, potassium: 59 }, humidity: 76,
+    status: { vi: "Ổn định", en: "Stable" }, tone: "good",
+    moistureHistory: zoneHistory([66, 65, 65, 64, 64, 63, 63]),
+  },
+  {
+    id: "zone-6", name: { vi: "Khu 6", en: "Zone 6" }, crop: { vi: "Cà phê", en: "Coffee" },
+    areaHectares: 0.125, sensorStation: "Trạm #A-106", ph: 5.9, moisture: 59,
+    npk: { nitrogen: 63, phosphorus: 36, potassium: 62 }, humidity: 74,
+    status: { vi: "Ổn định", en: "Stable" }, tone: "good",
+    moistureHistory: zoneHistory([65, 64, 62, 61, 60, 59, 59]),
+  },
+  {
+    id: "zone-7", name: { vi: "Khu 7", en: "Zone 7" }, crop: { vi: "Cà phê", en: "Coffee" },
+    areaHectares: 0.125, sensorStation: "Trạm #A-107", ph: 5.7, moisture: 52,
+    npk: { nitrogen: 57, phosphorus: 34, potassium: 55 }, humidity: 75,
+    status: { vi: "Ổn định", en: "Stable" }, tone: "good",
+    moistureHistory: zoneHistory([61, 59, 57, 55, 54, 53, 52]),
+  },
+  {
+    id: "zone-8", name: { vi: "Khu 8", en: "Zone 8" }, crop: { vi: "Cà phê", en: "Coffee" },
+    areaHectares: 0.125, sensorStation: "Trạm #A-108", ph: 5.6, moisture: 45,
+    npk: { nitrogen: 49, phosphorus: 29, potassium: 52 }, humidity: 77,
+    status: { vi: "Cần kiểm tra", en: "Needs review" }, tone: "alert",
+    moistureHistory: zoneHistory([58, 54, 51, 49, 47, 46, 45]),
   },
 ];
 

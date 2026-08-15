@@ -4,20 +4,17 @@ import { BottomNav, cx } from "./ui";
 
 export const PhoneFrame = ({
   children,
-  role,
   scanLabel,
   language,
 }: {
   children: ReactNode;
-  role: "farmer" | "exporter";
   scanLabel: string;
   language: "vi" | "en";
 }) => {
   const location = useLocation();
   const hideBottomNav =
     location.pathname === "/" ||
-    location.pathname.includes("/scan/analyzing") ||
-    location.pathname.includes("/exporter");
+    location.pathname.includes("/scan/analyzing");
 
   return (
     <div className="min-h-screen bg-brand-cream px-4 py-6 text-brand-ink">
@@ -40,7 +37,7 @@ export const PhoneFrame = ({
             {[
               ["AI agronomist", "Free diagnosis + care guidance"],
               ["Blockchain trail", "Tamper-proof farm timeline"],
-              ["Premium sale", "Direct exporter purchase at +22%"],
+              ["Farm monitoring", "Eight zones with clear sensor readings"],
             ].map(([title, body]) => (
               <div
                 key={title}
@@ -58,12 +55,12 @@ export const PhoneFrame = ({
             <div className="absolute left-1/2 top-3 h-6 w-32 -translate-x-1/2 rounded-full bg-black/70" />
             <div
               className={cx(
-                "min-h-[860px] rounded-[34px] border border-white/40 bg-brand-cream p-4 pt-10",
+                "flex h-[860px] flex-col overflow-hidden rounded-[34px] border border-white/40 bg-brand-cream p-4 pt-10",
                 "shadow-inner",
               )}
             >
-              {children}
-              {!hideBottomNav ? <BottomNav role={role} scanLabel={scanLabel} language={language} /> : null}
+              <main className="min-h-0 flex-1 overflow-y-auto pb-4">{children}</main>
+              {!hideBottomNav ? <BottomNav scanLabel={scanLabel} language={language} /> : null}
             </div>
           </div>
         </div>
