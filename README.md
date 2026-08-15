@@ -46,6 +46,9 @@ cp .env.example .env.local
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
+- `VITE_OPENROUTER_API_KEY`
+- `VITE_OPENROUTER_MODEL`
+- `VITE_OPENROUTER_FALLBACKS`
 
 7. Start the app:
 
@@ -89,6 +92,9 @@ Add these repository secrets in GitHub:
 - `VERCEL_PROJECT_ID`
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
+- `VITE_OPENROUTER_API_KEY`
+- `VITE_OPENROUTER_MODEL`
+- `VITE_OPENROUTER_FALLBACKS`
 
 The workflow is defined in [vercel-deploy.yml](file:///Users/bennguyen/Library/Application%20Support/TRAE%20SOLO/ModularData/ai-agent/work-mode-projects/6a8028179aa7933d6e39a200/.github/workflows/vercel-deploy.yml).
 
@@ -96,7 +102,11 @@ Behavior:
 
 - Pull requests deploy a Vercel preview build
 - Pushes to `main` deploy production
-- Supabase values are injected from GitHub secrets during the build
+- Supabase and OpenRouter values are injected from GitHub secrets into the Vercel build
+
+`VITE_*` variables are bundled into the frontend by Vite. Use a restricted,
+throwaway OpenRouter key for this demo and do not put a production secret in
+`VITE_OPENROUTER_API_KEY`.
 
 ## Recommended Flow
 

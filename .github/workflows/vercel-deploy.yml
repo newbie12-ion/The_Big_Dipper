@@ -15,6 +15,9 @@ jobs:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
       VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      VITE_OPENROUTER_API_KEY: ${{ secrets.VITE_OPENROUTER_API_KEY }}
+      VITE_OPENROUTER_MODEL: ${{ secrets.VITE_OPENROUTER_MODEL }}
+      VITE_OPENROUTER_FALLBACKS: ${{ secrets.VITE_OPENROUTER_FALLBACKS }}
     steps:
       - uses: actions/checkout@v4
 
@@ -38,6 +41,9 @@ jobs:
           --project="${VERCEL_PROJECT_ID}"
           --build-env "VITE_SUPABASE_URL=${VITE_SUPABASE_URL}"
           --build-env "VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}"
+          --build-env "VITE_OPENROUTER_API_KEY=${VITE_OPENROUTER_API_KEY}"
+          --build-env "VITE_OPENROUTER_MODEL=${VITE_OPENROUTER_MODEL}"
+          --build-env "VITE_OPENROUTER_FALLBACKS=${VITE_OPENROUTER_FALLBACKS}"
 
   deploy-production:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -47,6 +53,9 @@ jobs:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
       VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      VITE_OPENROUTER_API_KEY: ${{ secrets.VITE_OPENROUTER_API_KEY }}
+      VITE_OPENROUTER_MODEL: ${{ secrets.VITE_OPENROUTER_MODEL }}
+      VITE_OPENROUTER_FALLBACKS: ${{ secrets.VITE_OPENROUTER_FALLBACKS }}
     steps:
       - uses: actions/checkout@v4
 
@@ -68,3 +77,6 @@ jobs:
           --project="${VERCEL_PROJECT_ID}"
           --build-env "VITE_SUPABASE_URL=${VITE_SUPABASE_URL}"
           --build-env "VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}"
+          --build-env "VITE_OPENROUTER_API_KEY=${VITE_OPENROUTER_API_KEY}"
+          --build-env "VITE_OPENROUTER_MODEL=${VITE_OPENROUTER_MODEL}"
+          --build-env "VITE_OPENROUTER_FALLBACKS=${VITE_OPENROUTER_FALLBACKS}"
