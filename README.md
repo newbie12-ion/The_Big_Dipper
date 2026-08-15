@@ -20,32 +20,40 @@ Hackathon demo app for Build@HUB Hackathon 2026.
 
 ## Run
 
-1. Install Node.js 20+.
+1. Install Node.js 24+.
 2. Open the project in a normal local folder.
-3. Install dependencies:
+3. Confirm your runtime:
+
+```bash
+node --version
+```
+
+Use Node `24.x` before installing dependencies.
+
+4. Install dependencies:
 
 ```bash
 npm install
 ```
 
-4. Copy the environment template:
+5. Copy the environment template:
 
 ```bash
 cp .env.example .env.local
 ```
 
-5. Fill in these values:
+6. Fill in these values:
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 
-6. Start the app:
+7. Start the app:
 
 ```bash
 npm run dev
 ```
 
-7. Build for production:
+8. Build for production:
 
 ```bash
 npm run build
@@ -95,6 +103,12 @@ Behavior:
 1. Develop locally with `.env.local`
 2. Push to a feature branch for Vercel preview deployment
 3. Merge to `main` for production deployment
+
+## Node Version
+
+- Local development: Node `24.x`
+- GitHub Actions: Node `24`
+- Project engines field: `>=24`
 
 ## Important Note
 
