@@ -152,28 +152,28 @@ export const HomeDashboardScreen = () => {
         </button>
       </div>
 
-      <AppCard className="bg-brand-dark text-white">
+      <AppCard className="!border-emerald-200 !bg-emerald-50 !text-brand-ink">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-sm text-emerald-100">{weatherCard.temperature}</p>
-            <h2 className="mt-1 text-xl font-semibold">{weatherCard.summary[language]}</h2>
+            <p className="text-sm font-semibold text-brand-green">{weatherCard.temperature}</p>
+            <h2 className="mt-1 text-xl font-semibold text-brand-dark">{weatherCard.summary[language]}</h2>
           </div>
-          <CloudRain className="h-10 w-10 text-emerald-200" />
+          <CloudRain className="h-10 w-10 text-brand-green" />
         </div>
         <div className="mt-4 grid grid-cols-3 gap-3 text-center text-sm">
-          <div className="rounded-2xl bg-white/10 px-2 py-3">
-            <p className="text-xs text-emerald-100">
+          <div className="rounded-2xl border border-emerald-100 bg-white px-2 py-3">
+            <p className="text-xs font-medium text-brand-muted">
               {language === "vi" ? "Độ ẩm" : "Humidity"}
             </p>
-            <p className="mt-1 text-base font-semibold">{weatherCard.humidity}</p>
+            <p className="mt-1 text-base font-semibold text-brand-dark">{weatherCard.humidity}</p>
           </div>
-          <div className="rounded-2xl bg-white/10 px-2 py-3">
-            <p className="text-xs text-emerald-100">{language === "vi" ? "Mưa" : "Rain"}</p>
-            <p className="mt-1 text-base font-semibold">{weatherCard.rainfall}</p>
+          <div className="rounded-2xl border border-emerald-100 bg-white px-2 py-3">
+            <p className="text-xs font-medium text-brand-muted">{language === "vi" ? "Mưa" : "Rain"}</p>
+            <p className="mt-1 text-base font-semibold text-brand-dark">{weatherCard.rainfall}</p>
           </div>
-          <div className="rounded-2xl bg-white/10 px-2 py-3">
-            <p className="text-xs text-emerald-100">{language === "vi" ? "Vùng" : "Zone"}</p>
-            <p className="mt-1 text-base font-semibold">Mekong</p>
+          <div className="rounded-2xl border border-emerald-100 bg-white px-2 py-3">
+            <p className="text-xs font-medium text-brand-muted">{language === "vi" ? "Vùng" : "Zone"}</p>
+            <p className="mt-1 text-base font-semibold text-brand-dark">Mekong</p>
           </div>
         </div>
       </AppCard>
